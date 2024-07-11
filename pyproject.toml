@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scstarter"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "Aleksandr Egert", email = "9213855+kreigan@users.noreply.github.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = []
+
+[project.urls]
+Documentation = "https://github.com/kreigan/scstarter#readme"
+Issues = "https://github.com/kreigan/scstarter/issues"
+Source = "https://github.com/kreigan/scstarter"
+
+[tool.hatch.version]
+path = "src/scstarter/__about__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+  "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/scstarter tests}"
+
+[tool.coverage.run]
+source_pkgs = ["scstarter", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/scstarter/__about__.py",
+]
+
+[tool.coverage.paths]
+scstarter = ["src/scstarter", "*/scstarter/src/scstarter"]
+tests = ["tests", "*/scstarter/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
