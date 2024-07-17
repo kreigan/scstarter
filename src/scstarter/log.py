@@ -7,10 +7,7 @@ import structlog
 from structlog.processors import JSONRenderer
 from structlog.types import EventDict, WrappedLogger
 
-
-class ConfigurationError(Exception):
-    def __init__(self, message: str):
-        super().__init__(message)
+from scstarter.exception import ConfigurationError
 
 
 ChainOutput = str | bytes | bytearray
