@@ -1,10 +1,10 @@
-import logging
-import logging.config
-import uuid
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from dataclasses import dataclass
+from logging import Logger
+from typing import Generic, Self, TypeVar
 
 import structlog
+from structlog.processors import JSONRenderer
 from structlog.types import EventDict, WrappedLogger
 
 
@@ -13,131 +13,92 @@ class ConfigurationError(Exception):
         super().__init__(message)
 
 
-TProcessorResult = TypeVar("TProcessorResult")
-TChainResult = TypeVar("TChainResult")
+ChainOutput = str | bytes | bytearray
+ProcessorOutput = EventDict | ChainOutput
 
-LogProcessor = Callable[[WrappedLogger, str, EventDict], TProcessorResult]
+TLogger = TypeVar("TLogger", bound=WrappedLogger)
+TChainOutput = TypeVar("TChainOutput", bound=ChainOutput)
+TProcessorInput = TypeVar("TProcessorInput", bound=EventDict)
+TProcessorOutput = TypeVar("TProcessorOutput", bound=ProcessorOutput)
 
+Processor = Callable[[TLogger, str, TProcessorInput], TProcessorOutput]
 
-class ProcessorChain[TProcessorResult, TChainResult]:
-    def __init__(self, final_processor: LogProcessor[TChainResult]):
-        if not callable(final_processor):
-            raise ConfigurationError(
-                "Final processor must be a callable that accepts logger, name, event_dict"
-            )
-        self._pre_processors: list[LogProcessor[TProcessorResult]] = []
-        self._processors: list[LogProcessor[TProcessorResult]] = []
-        self._final_processor = final_processor
+IntermediateProcessor = Processor[TLogger, TProcessorInput, TProcessorInput]
+FinishingProcessor = Processor[TLogger, TProcessorInput, TChainOutput]
 
-
-class ProcessorChainBuilder:
-    def __init__(self):
-        self._processors = {}
-
-    # def with_contextvars(self):
-    #     self._processors.update(
-    #         {"merge_contextvars": structlog.contextvars.merge_contextvars}
-    #     )
-    #     return self
-
-    # def with_log_level(self):
-    #     self._processors.update(
-    #         {"log_level": structlog.stdlib.add_log_level}
-    #     )
-    #     return self
-
-    # def with_logger_name(self):
-    #     self._processors.update(
-    #         {"logger_name": structlog.stdlib.add_logger_name}
-    #     )
-    #     return self
-
-    # def with_time_stamper(self, fmt="iso", utc: bool = True, key="timestamp"):
-    #     self._processors.update(
-    #         {"timestamp": structlog.processors.TimeStamper(fmt=fmt, utc=utc, key=key)}
-    #     )
-    #     return self
+StructedLoggingIntermediateProcessor = IntermediateProcessor[Logger, EventDict]
+StructedLoggingFinishingProcessor = FinishingProcessor[Logger, EventDict, TChainOutput]
 
 
-chain = ProcessorChain[EventDict, str | bytes](structlog.processors.JSONRenderer())
+@dataclass
+class ProcessorChain(Generic[TLogger, TProcessorInput, TProcessorOutput, TChainOutput]):
+    processors: list[IntermediateProcessor[TLogger, TProcessorInput]]
+    output_processor: FinishingProcessor[TLogger, TProcessorInput, TChainOutput]
 
-#######################################################################################
-#######################################################################################
+
+class ProcessorChainBuilder(
+    Generic[TLogger, TProcessorInput, TProcessorOutput, TChainOutput]
+):
+    def __init__(
+        self,
+        output_processor: FinishingProcessor[TLogger, TProcessorInput, TChainOutput],
+    ) -> None:
+        self._pre_processors: list[IntermediateProcessor[TLogger, TProcessorInput]] = []
+        self._processors: list[IntermediateProcessor[TLogger, TProcessorInput]] = []
+        self._output_processor: FinishingProcessor[
+            TLogger, TProcessorInput, TChainOutput
+        ] = output_processor
+
+    def build(
+        self,
+    ) -> ProcessorChain[TLogger, TProcessorInput, TProcessorOutput, TChainOutput]:
+        return ProcessorChain(
+            processors=self._pre_processors + self._processors,
+            output_processor=self._output_processor,
+        )
 
 
-shared_processor_chain = [
-    structlog.contextvars.merge_contextvars,
-    structlog.stdlib.add_log_level,
-    structlog.stdlib.add_logger_name,
-    structlog.processors.TimeStamper(fmt="iso"),
-]
+class StructurredLoggingChainBuilder(
+    ProcessorChainBuilder[Logger, EventDict, EventDict, ChainOutput]
+):
+    def with_contextvars(self) -> Self:
+        """
+        Merges in global (context-local) context variables into every logger call.
+        Adds contextvars to the beginning of the logger processor chain.
 
-processor_chain = {
-    "logging": shared_processor_chain
-    + [
-        structlog.stdlib.ExtraAdder(),
-    ],
-    "structlog": shared_processor_chain
-    + [
-        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-    ],
-    "main": [
-        structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-        structlog.processors.JSONRenderer(),
-    ],
-}
+        Raises:
+            ConfigurationError: If contextvars have already been added.
 
-structlog.configure(
-    processors=processor_chain["structlog"],
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
+        Returns:
+            self: The builder instance with contextvars added.
+        """
+        if self._has_context:
+            raise ConfigurationError("Contextvars already added")
+        self._pre_processors.insert(0, structlog.contextvars.merge_contextvars)
+        return self
 
-logging.config.dictConfig(
-    {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "structlog": {
-                "()": structlog.stdlib.ProcessorFormatter,
-                "foreign_pre_chain": processor_chain["logging"],
-                "processors": processor_chain["main"],
-            }
-        },
-        "handlers": {
-            "default": {
-                "level": "DEBUG",
-                "class": "logging.StreamHandler",
-                "formatter": "structlog",
-            }
-        },
-        "loggers": {
-            "com.kreigan.scstarter.log": {
-                "handlers": ["default"],
-                "level": "DEBUG",
-                "propagate": False,
-            }
-        },
-        "root": {
-            "handlers": ["default"],
-            "level": "DEBUG",
-        },
-    }
-)
+    def with_log_level(self) -> Self:
+        self._processors.append(structlog.stdlib.add_log_level)
+        return self
 
-trace_id = str(uuid.uuid4())
+    def with_logger_name(self) -> Self:
+        self._processors.append(structlog.stdlib.add_logger_name)
+        return self
 
-structlog.contextvars.clear_contextvars()
-structlog.contextvars.bind_contextvars(trace_id=trace_id)
+    def with_time_stamp(
+        self, fmt: str = "iso", utc: bool = True, key: str = "timestamp"
+    ) -> Self:
+        self._processors.append(
+            structlog.processors.TimeStamper(fmt=fmt, utc=utc, key=key)
+        )
+        return self
 
-standard_logger = logging.getLogger("com.kreigan.scstarter.log")
-struct_logger = structlog.get_logger("com.kreigan.scstarter.log")
-sql_logger = logging.getLogger("sqlalchemy.engine")
+    @property
+    def _has_context(self) -> bool:
+        return any(
+            processor == structlog.contextvars.merge_contextvars
+            for processor in self._pre_processors
+        )
 
-standard_logger.info("Hello, Standard World!")
-struct_logger.info("Hello, Structured World!")
 
-standard_logger.debug("Hello, Standard World!")
-struct_logger.debug("Hello, Structured World!")
-
-sql_logger.info("Hello, SQL World!")
+cb = StructurredLoggingChainBuilder(structlog.processors.KeyValueRenderer())
