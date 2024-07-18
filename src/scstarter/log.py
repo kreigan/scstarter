@@ -36,9 +36,7 @@ class ProcessorChainBuilder(Generic[TLogger, TProcessorInput, TChainOutput]):
     ) -> None:
         self._pre_processors: list[IntermediateProcessor[TLogger, TProcessorInput]] = []
         self._processors: list[IntermediateProcessor[TLogger, TProcessorInput]] = []
-        self._output_processor: FinishingProcessor[
-            TLogger, TProcessorInput, TChainOutput
-        ] = output_processor
+        self._output_processor: FinishingProcessor[TLogger, TProcessorInput, TChainOutput] = output_processor
 
     def build(self) -> ProcessorChain[TLogger, TProcessorInput, TChainOutput]:
         return ProcessorChain(
@@ -47,9 +45,7 @@ class ProcessorChainBuilder(Generic[TLogger, TProcessorInput, TChainOutput]):
         )
 
 
-class StructurredLoggingChainBuilder(
-    ProcessorChainBuilder[Logger, EventDict, TChainOutput]
-):
+class StructurredLoggingChainBuilder(ProcessorChainBuilder[Logger, EventDict, TChainOutput]):
     def with_contextvars(self) -> Self:
         """
         Merges in global (context-local) context variables into every logger call.
@@ -74,20 +70,13 @@ class StructurredLoggingChainBuilder(
         self._processors.append(structlog.stdlib.add_logger_name)
         return self
 
-    def with_time_stamp(
-        self, fmt: str = "iso", utc: bool = True, key: str = "timestamp"
-    ) -> Self:
-        self._processors.append(
-            structlog.processors.TimeStamper(fmt=fmt, utc=utc, key=key)
-        )
+    def with_time_stamp(self, fmt: str = "iso", utc: bool = True, key: str = "timestamp") -> Self:
+        self._processors.append(structlog.processors.TimeStamper(fmt=fmt, utc=utc, key=key))
         return self
 
     @property
     def _has_context(self) -> bool:
-        return any(
-            processor == structlog.contextvars.merge_contextvars
-            for processor in self._pre_processors
-        )
+        return any(processor == structlog.contextvars.merge_contextvars for processor in self._pre_processors)
 
 
 cb = StructurredLoggingChainBuilder(structlog.processors.KeyValueRenderer())

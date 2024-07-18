@@ -64,3 +64,21 @@ check = "mypy --install-types --non-interactive {args:src/scstarter tests}"
 
 [tool.hatch.version]
 path = "src/scstarter/__about__.py"
+
+
+############
+### Ruff ###
+############
+
+[tool.ruff]
+indent-width = 4
+line-length = 110
+src = ["src", "test"]
+
+[tool.ruff.format]
+docstring-code-format = true
+indent-style = "space"
+quote-style = "double"
+
+[tool.ruff.lint.isort]
+lines-between-types = 1
