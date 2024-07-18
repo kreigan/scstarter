@@ -4,7 +4,6 @@ from logging import Logger
 from typing import Generic, Self, TypeVar
 
 import structlog
-from structlog.processors import JSONRenderer
 from structlog.types import EventDict, WrappedLogger
 
 from scstarter.exception import ConfigurationError
@@ -15,7 +14,7 @@ ProcessorOutput = EventDict | ChainOutput
 
 TLogger = TypeVar("TLogger", bound=WrappedLogger)
 TChainOutput = TypeVar("TChainOutput", bound=ChainOutput)
-TProcessorInput = TypeVar("TProcessorInput", bound=EventDict)
+TProcessorInput = TypeVar("TProcessorInput", bound=ProcessorOutput)
 TProcessorOutput = TypeVar("TProcessorOutput", bound=ProcessorOutput)
 
 Processor = Callable[[TLogger, str, TProcessorInput], TProcessorOutput]
@@ -23,19 +22,14 @@ Processor = Callable[[TLogger, str, TProcessorInput], TProcessorOutput]
 IntermediateProcessor = Processor[TLogger, TProcessorInput, TProcessorInput]
 FinishingProcessor = Processor[TLogger, TProcessorInput, TChainOutput]
 
-StructedLoggingIntermediateProcessor = IntermediateProcessor[Logger, EventDict]
-StructedLoggingFinishingProcessor = FinishingProcessor[Logger, EventDict, TChainOutput]
-
 
 @dataclass
-class ProcessorChain(Generic[TLogger, TProcessorInput, TProcessorOutput, TChainOutput]):
+class ProcessorChain(Generic[TLogger, TProcessorInput, TChainOutput]):
     processors: list[IntermediateProcessor[TLogger, TProcessorInput]]
     output_processor: FinishingProcessor[TLogger, TProcessorInput, TChainOutput]
 
 
-class ProcessorChainBuilder(
-    Generic[TLogger, TProcessorInput, TProcessorOutput, TChainOutput]
-):
+class ProcessorChainBuilder(Generic[TLogger, TProcessorInput, TChainOutput]):
     def __init__(
         self,
         output_processor: FinishingProcessor[TLogger, TProcessorInput, TChainOutput],
@@ -46,9 +40,7 @@ class ProcessorChainBuilder(
             TLogger, TProcessorInput, TChainOutput
         ] = output_processor
 
-    def build(
-        self,
-    ) -> ProcessorChain[TLogger, TProcessorInput, TProcessorOutput, TChainOutput]:
+    def build(self) -> ProcessorChain[TLogger, TProcessorInput, TChainOutput]:
         return ProcessorChain(
             processors=self._pre_processors + self._processors,
             output_processor=self._output_processor,
@@ -56,7 +48,7 @@ class ProcessorChainBuilder(
 
 
 class StructurredLoggingChainBuilder(
-    ProcessorChainBuilder[Logger, EventDict, EventDict, ChainOutput]
+    ProcessorChainBuilder[Logger, EventDict, TChainOutput]
 ):
     def with_contextvars(self) -> Self:
         """
